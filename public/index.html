@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+
+    <div class="app">
+
+        <header class="top-bar">
+            <h1>Chat App</h1>
+            <p id="status">Connecting...</p>
+            <button id="logoutButton">
+                Logout
+            </button>
+        </header>
+
+        <div class="chat-layout">
+
+            <!-- LEFT SIDEBAR -->
+            <aside class="sidebar">
+
+                <div id="userSearchContainer">
+                    <input
+                        type="text"
+                        id="userSearchInput"
+                        placeholder="Search users..."
+                    >
+
+                    <div id="userSearchResults"></div>
+                </div>
+
+                <h2>My Conversations</h2>
+
+                <div id="conversationList"></div>
+
+            </aside>
+
+            <!-- RIGHT CHAT AREA -->
+            <main class="chat-area">
+
+                <div class="chat-header">
+                    <h2 id="chatHeader">Select a conversation</h2>
+                    <p id="chatStatus"></p>
+                </div>
+
+                <div id="messages"></div>
+
+                <div class="message-input-area">
+
+                    <input
+                        type="text"
+                        id="messageInput"
+                        placeholder="Type a message..."
+                    >
+
+                    <button id="sendButton">
+                        Send
+                    </button>
+
+                </div>
+
+            </main>
+
+        </div>
+
+    </div>
+
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+        const token = localStorage.getItem("token");
+
+        if (!token) {
+            window.location.href = "/login.html";
+        }
+
+        const socket = io({
+            auth: {
+                token: localStorage.getItem("token")
+            }
+        });
+
+        const logoutButton =
+            document.getElementById("logoutButton");
+
+        logoutButton.addEventListener("click", () => {
+
+            localStorage.removeItem("token");
+
+            socket.disconnect();
+
+            window.location.href = "/login.html";
+
+        });
+
+        const messageInput =
+            document.getElementById("messageInput");
+
+        const sendButton =
+            document.getElementById("sendButton");
+
+        const messages =
+            document.getElementById("messages");
+
+        const chatHeader =
+            document.getElementById("chatHeader");
+
+        const chatStatus =
+            document.getElementById("chatStatus");
+
+        const conversationList =
+            document.getElementById("conversationList");
+
+            let currentConversationId = null;
+
+            let onlineUsers = new Set();
+
+            let currentOtherUserId = null;
+
+        const userSearchContainer =
+            document.getElementById("userSearchContainer");
+
+        const userSearchInput =
+            document.getElementById("userSearchInput");
+
+        const userSearchResults =
+            document.getElementById("userSearchResults");
+
+        userSearchInput.addEventListener("input", async () => {
+            const search = userSearchInput.value.trim();
+
+            userSearchResults.innerHTML = "";
+
+            if (!search) {
+                return;
+            }
+
+            try {
+                const response = await fetch(
+                    `/users/search?q=${encodeURIComponent(search)}`);
+
+                if (!response) {
+                    return;
+                }
+
+                const users = await response.json();
+
+                users.forEach((user) => {
+                    const button = document.createElement("button");
+
+                    button.textContent = user.username;
+
+                    button.addEventListener("click", async () => {
+                        try {
+                            const response = await fetch("/conversations", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization:
+                                        "Bearer " +
+                                        localStorage.getItem("token")
+                                },
+                                body: JSON.stringify({
+                                    userId: user.id
+                                })
+                            });
+
+                            const data = await response.json();
+
+                            if (!response.ok) {
+                                console.log(data);
+                                return;
+                            }
+
+                            console.log(data);
+
+                            conversationList.innerHTML = "";
+
+                            await loadConversations();
+
+                            currentConversationId = data.conversation.id;
+
+                            currentOtherUserId = user.id;
+
+                            chatHeader.textContent =
+                                user.username;
+
+                            updateChatStatus(user.id);
+
+                            messages.innerHTML = "";
+
+                            socket.emit(
+                                "joinConversation",
+                                currentConversationId
+                            );
+
+                            await loadMessages(currentConversationId);
+
+                            userSearchInput.value = "";
+                            userSearchResults.innerHTML = "";
+                        } catch (error) {
+                            console.error(
+                                "Failed to open conversation:",
+                                error
+                            );
+                        }
+                    });
+
+                    userSearchResults.appendChild(button);
+                });
+            } catch (error) {
+                console.error("User search failed:", error);
+            }
+        });
+
+        function getCurrentUserId() {
+            const token =
+                localStorage.getItem("token");
+
+            if (!token) {
+                return null;
+            }
+
+            const payload =
+                JSON.parse(
+                    atob(token.split(".")[1])
+                );
+
+            return payload.userId;
+        }
+
+        function updateChatStatus(userId) {
+            if (onlineUsers.has(userId)) {
+                chatStatus.textContent = "🟢 Online";
+            } else {
+                chatStatus.textContent = "⚫ Offline";
+            }
+        }
+
+        socket.on("connect", () => {
+            document.getElementById("status").textContent =
+                "Connected to server!";
+
+            console.log("Connected:", socket.id);
+        });
+
+        socket.on("onlineUsers", (users) => {
+            onlineUsers = new Set(users);
+
+            console.log(
+                "Current online users:",
+                Array.from(onlineUsers)
+            );
+            if (currentOtherUserId) {
+                updateChatStatus(currentOtherUserId);
+            }
+        });
+
+        socket.on("userStatus", (data) => {
+            if (data.online) {
+                onlineUsers.add(data.userId);
+            } else {
+                onlineUsers.delete(data.userId);
+            }
+
+            if (
+                currentConversationId &&
+                currentOtherUserId === data.userId
+            ) {
+                updateChatStatus(data.userId);
+            }
+        });
+
+        socket.on("connect_error", (error) => {
+            console.log(
+                "Socket connection failed:",
+                error.message
+            );
+
+            if (
+                error.message === "Invalid or expired token" ||
+                error.message === "Authentication required"
+            ) {
+                localStorage.removeItem("token");
+
+                window.location.href = "/login.html";
+            }
+        });
+
+        socket.on("disconnect", () => {
+            document.getElementById("status").textContent =
+                "Disconnected from server";
+        });
+
+        socket.on("errorMessage", (message) => {
+            console.log("Server error:", message);
+        });
+
+        socket.on("chatMessage", (data) => {
+
+            const messageWrapper =
+                document.createElement("div");
+
+            const messageBubble =
+                document.createElement("div");
+
+            const sender =
+                document.createElement("div");
+
+            const content =
+                document.createElement("div");
+
+            const time =
+                document.createElement("div");
+
+            sender.textContent =
+                data.sender_username;
+
+            content.textContent =
+                data.content;
+
+            time.textContent =
+                new Date(data.created_at)
+                    .toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit"
+                    });
+
+            messageBubble.appendChild(sender);
+            messageBubble.appendChild(content);
+            messageBubble.appendChild(time);
+
+            messageBubble.classList.add("messageBubble");
+
+            messageWrapper.appendChild(messageBubble);
+
+            if (data.sender_id === getCurrentUserId()) {
+                messageWrapper.classList.add("message", "mine");
+            } else {
+                messageWrapper.classList.add("message", "theirs");
+            }
+
+            messages.appendChild(messageWrapper);
+
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+
+            if (!currentConversationId) {
+                console.log("Please select a conversation first");
+                return;
+            }
+
+            if (!message) {
+                return;
+            }
+
+            socket.emit("chatMessage", {
+                conversationId: currentConversationId,
+                message
+            });
+
+            messageInput.value = "";
+        }
+
+        sendButton.addEventListener("click", sendMessage);
+
+        messageInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+
+        async function loadMessages(conversationId) {
+            try {
+                const response = await authenticatedFetch(`/messages?conversationId=${conversationId}`);
+
+                if (!response) {
+                    return;
+                }
+
+                const data = await response.json();
+
+                data.forEach((message) => {
+
+                    const messageWrapper =
+                        document.createElement("div");
+
+                    const messageBubble =
+                        document.createElement("div");
+
+                    const sender =
+                        document.createElement("div");
+
+                    const content =
+                        document.createElement("div");
+
+                    const time =
+                        document.createElement("div");
+
+                    sender.textContent =
+                        message.sender_username;
+
+                    content.textContent =
+                        message.content;
+
+                    time.textContent =
+                        new Date(message.created_at)
+                            .toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit"
+                            });
+
+                    messageBubble.appendChild(sender);
+                    messageBubble.appendChild(content);
+                    messageBubble.appendChild(time);
+
+                    messageBubble.classList.add("messageBubble");
+
+                    messageWrapper.appendChild(messageBubble);
+
+                    if (message.sender_id === getCurrentUserId()) {
+                        messageWrapper.classList.add(
+                            "message",
+                            "mine"
+                        );
+                    } else {
+                        messageWrapper.classList.add(
+                            "message",
+                            "theirs"
+                        );
+                    }
+
+                    messages.appendChild(messageWrapper);
+                });
+
+                messages.scrollTop = messages.scrollHeight;
+
+            } catch (error) {
+                console.error(
+                    "Failed to load messages:",
+                    error
+                );
+            }
+        }
+
+        async function authenticatedFetch(url, options = {}) {
+            const token = localStorage.getItem("token");
+
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    Authorization: "Bearer " + token
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                localStorage.removeItem("token");
+
+                window.location.href = "/login.html";
+
+                return null;
+            }
+
+            return response;
+        }
+
+        async function loadConversations() {
+            try {
+                const response = await authenticatedFetch("/conversations");
+
+                if (!response) {
+                    return;
+                }
+
+                const conversations = await response.json();
+
+                conversations.forEach((conversation) => {
+                    const button = document.createElement("button");
+
+                    button.textContent = conversation.name;
+
+                    button.addEventListener("click", () => {
+
+                        document
+                            .querySelectorAll("#conversationList button")
+                            .forEach((button) => {
+                                button.classList.remove("active");
+                            });
+
+                        button.classList.add("active");
+
+                        currentConversationId = conversation.id;
+
+                        chatHeader.textContent = conversation.name;
+
+                        currentOtherUserId = conversation.other_user_id;
+
+                        updateChatStatus(conversation.other_user_id);
+
+                        messages.innerHTML = "";
+
+                        socket.emit(
+                            "joinConversation",
+                            currentConversationId
+                        );
+
+                        loadMessages(currentConversationId);
+                    });
+
+                    conversationList.appendChild(button);
+                });
+
+            } catch (error) {
+                console.error(
+                    "Failed to load conversations:",
+                    error
+                );
+            }
+        }
+
+        loadConversations();
+    </script>
+
+</body>
+</html>
