@@ -20,6 +20,8 @@ The application supports authenticated users, user search, conversation manageme
 - PostgreSQL connection pooling
 - Input validation and authorization checks
 - Database indexing for optimized message-history queries
+- Real-time new conversation notifications
+- Unread message counts with read-state tracking
 
 ## Tech Stack
 
