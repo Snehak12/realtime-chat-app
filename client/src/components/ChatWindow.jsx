@@ -25,7 +25,7 @@ function formatMessageDate(dateString) {
     })
 }
 
-function ChatWindow({ conversation }) {
+function ChatWindow({ conversation, onSocketReady }) {
     const [socket, setSocket] = useState(null)
     const [messages, setMessages] = useState([])
     const [messageInput, setMessageInput] = useState('')
@@ -48,6 +48,7 @@ function ChatWindow({ conversation }) {
         })
 
         setSocket(newSocket)
+        onSocketReady(newSocket)
 
         newSocket.on('connect', () => {
             console.log('Connected to Socket.IO:', newSocket.id)

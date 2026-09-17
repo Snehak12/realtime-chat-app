@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-function Sidebar({ onSelectConversation }) {
+function Sidebar({ onSelectConversation, socket }) {
     const [conversations, setConversations] = useState([])
     const [search, setSearch] = useState('')
     const [searchResults, setSearchResults] = useState([])
@@ -8,7 +8,27 @@ function Sidebar({ onSelectConversation }) {
 
     useEffect(() => {
         loadConversations()
-    }, [])
+
+        if (!socket) {
+        return
+        }
+
+        function handleNewConversation() {
+            loadConversations()
+        }
+
+        function handleNewMessageNotification() {
+            loadConversations()
+        }
+
+        socket.on('newConversation', handleNewConversation)
+        socket.on('newMessageNotification', handleNewMessageNotification)
+
+        return () => {
+            socket.off('newConversation', handleNewConversation)
+            socket.off('newMessageNotification', handleNewMessageNotification)
+        }
+    }, [socket])
 
     async function loadConversations() {
         try {
@@ -152,11 +172,31 @@ function Sidebar({ onSelectConversation }) {
                         <button
                             className="conversation-item"
                             key={conversation.id}
-                            onClick={() =>
+                            onClick={async () => {
                                 onSelectConversation(conversation)
-                            }
+
+                                const token = localStorage.getItem('token')
+
+                                await fetch(
+                                    `${import.meta.env.VITE_API_URL}/conversations/${conversation.id}/read`,
+                                    {
+                                        method: 'PATCH',
+                                        headers: {
+                                            Authorization: `Bearer ${token}`
+                                        }
+                                    }
+                                )
+
+                                loadConversations()
+                            }}
                         >
-                            {conversation.name}
+                            <span>{conversation.name}</span>
+
+                            {Number(conversation.unread_count) > 0 && (
+                                <span className="unread-badge">
+                                    {conversation.unread_count}
+                                </span>
+                            )}
                         </button>
                     ))
                 )}

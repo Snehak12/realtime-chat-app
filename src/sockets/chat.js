@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../db");
-const onlineUsers = new Set();
+const onlineUsers = require("./onlineUsers");
 
 module.exports = (io) => {
     io.use((socket, next) => {
@@ -22,7 +22,9 @@ module.exports = (io) => {
     });
 
     io.on("connection", (socket) => {
-        onlineUsers.add(socket.user.userId);
+        onlineUsers.set(socket.user.userId, socket.id);
+
+        socket.join(`user_${socket.user.userId}`);
 
     console.log(
         `${socket.user.username} is online`
@@ -33,7 +35,7 @@ module.exports = (io) => {
     online: true
     });
 
-    socket.emit("onlineUsers", Array.from(onlineUsers));
+    socket.emit("onlineUsers", Array.from(onlineUsers.keys()));
 
     console.log(
          "User connected:",
@@ -113,6 +115,20 @@ module.exports = (io) => {
 
             savedMessage.sender_username =
                 userResult.rows[0].username;
+
+            const recipientResult = await pool.query(
+                `SELECT user_id
+                FROM conversation_members
+                WHERE conversation_id = $1
+                AND user_id <> $2`,
+                [conversationId, socket.user.userId]
+            );
+
+            const recipientUserId = recipientResult.rows[0]?.user_id;
+
+            if (recipientUserId) {
+                io.to(`user_${recipientUserId}`).emit("newMessageNotification");
+            }
 
             io.to(`conversation_${conversationId}`).emit(
                 "chatMessage",

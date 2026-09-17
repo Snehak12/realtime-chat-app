@@ -25,7 +25,7 @@ app.use(express.json());
 app.use(cors());
 app.use(express.static("public"));
 app.use(authRoutes);
-app.use(conversationRoutes);
+app.use(conversationRoutes(io));
 app.use(messageRoutes);
 app.use(userRoutes);
 

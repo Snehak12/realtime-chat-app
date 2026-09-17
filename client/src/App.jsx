@@ -12,6 +12,7 @@ function App() {
 
     const [showRegister, setShowRegister] = useState(false)
     const [currentConversation, setCurrentConversation] = useState(null)
+    const [socket, setSocket] = useState(null)
 
     function handleLogout() {
         localStorage.removeItem('token')
@@ -50,10 +51,12 @@ function App() {
             <main className="chat-layout">
                 <Sidebar
                     onSelectConversation={setCurrentConversation}
+                    socket={socket}
                 />
 
                 <ChatWindow
                     conversation={currentConversation}
+                    onSocketReady={setSocket}
                 />
             </main>
         </div>
